@@ -284,7 +284,7 @@ def custom_pretrain_encoder(loggers, loaders, model, optimizer, scheduler, r_opt
             r_grad=False
         start_time = time.perf_counter()
         pretrain_epoch(loggers[0], loaders[0], model, optimizer, r_optim,scheduler,
-                       cfg.optim.batch_accumulation,r_grad,cur_epoch % 9 == 0)
+                       cfg.optim.batch_accumulation, r_grad, visualize=False)
         perf[0].append(loggers[0].write_epoch(cur_epoch))
 
         if is_eval_epoch(cur_epoch):

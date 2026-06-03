@@ -239,7 +239,6 @@ if __name__ == '__main__':
         logging.info(f"[*] Run ID {run_id}: seed={cfg.seed}, "
                      f"split_index={cfg.dataset.split_index}")
         logging.info(f"    Starting now: {datetime.datetime.now()}")
-      
 
         model = create_model_custom(cfg_name='encoder')
         if cfg.pretrained.dir:
@@ -260,8 +259,10 @@ if __name__ == '__main__':
             scheduler = create_scheduler(optimizer, new_scheduler_config(cfg))
             r_optim = RiemannianAdam(rm_params, lr=cfg.optim.lr_Riemann, weight_decay=cfg.optim.weight_decay_Riemann, stabilize=cfg.optim.stabilize)
 
-        logging.info(model)
-        logging.info(cfg)
+        compact_log = getattr(cfg.train, 'log_style', 'compact') == 'compact'
+        if not compact_log:
+            logging.info(model)
+            logging.info(cfg)
         cfg.params = params_count(model)
         logging.info('Num parameters: %s', cfg.params)
         # Start training

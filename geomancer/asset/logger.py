@@ -1,5 +1,6 @@
 import logging
 import time
+import warnings
 
 import numpy as np
 import torch
@@ -276,14 +277,15 @@ class CustomLogger(Logger):
             }
 
         # print
-        logging.info('{}: {}'.format(self.name, stats))
+        if getattr(cfg.train, 'log_style', 'compact') != 'compact':
+            logging.info('{}: {}'.format(self.name, stats))
         # json
         dict_to_json(stats, '{}/stats.json'.format(self.out_dir))
         # tensorboard
         if cfg.tensorboard_each_run:
             dict_to_tb(stats, self.tb_writer, cur_epoch)
         self.reset()
-        if cur_epoch < 3:
+        if getattr(cfg.train, 'log_style', 'compact') != 'compact' and cur_epoch < 3:
             logging.info(f"...computing epoch stats took: "
                          f"{time.perf_counter() - start_time:.2f}s")
         return stats
@@ -319,18 +321,59 @@ def create_logger():
     return loggers
 
 
+def log_compact_epoch(cur_epoch, perf, best_epoch, epoch_time, avg_epoch_time):
+    """One-line epoch summary for terminal output."""
+    metric = cfg.metric_best
+    max_epoch = cfg.optim.max_epoch
+    train = perf[0][-1]
+    val = perf[1][-1]
+    test = perf[2][-1]
+    best_val = perf[1][best_epoch]
+
+    def _fmt(split_stats):
+        if metric in split_stats:
+            return f"loss {split_stats['loss']:.4f} {metric} {split_stats[metric]:.4f}"
+        return f"loss {split_stats['loss']:.4f}"
+
+    best_metric = best_val.get(metric, 0.0)
+    logging.info(
+        f"Epoch {cur_epoch:4d}/{max_epoch} | {epoch_time:.1f}s "
+        f"(avg {avg_epoch_time:.1f}s) | "
+        f"train {_fmt(train)} | val {_fmt(val)} | test {_fmt(test)} | "
+        f"best@{best_epoch} val_{metric} {best_metric:.4f}"
+    )
+
+
+def _safe_spearmanr(y_true, y_pred):
+    """Spearman rho; returns NaN when correlation is undefined."""
+    if len(y_true) < 2:
+        return float('nan')
+    if np.std(y_true) == 0 or np.std(y_pred) == 0:
+        return float('nan')
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', stats.ConstantInputWarning)
+        rho, _ = stats.spearmanr(y_true, y_pred)
+    return float(rho) if np.isfinite(rho) else float('nan')
+
+
 def eval_spearmanr(y_true, y_pred):
     """Compute Spearman Rho averaged across tasks.
     """
     res_list = []
 
     if y_true.ndim == 1:
-        res_list.append(stats.spearmanr(y_true, y_pred)[0])
+        res_list.append(_safe_spearmanr(y_true, y_pred))
     else:
         for i in range(y_true.shape[1]):
             # ignore nan values
             is_labeled = ~np.isnan(y_true[:, i])
-            res_list.append(stats.spearmanr(y_true[is_labeled, i],
-                                            y_pred[is_labeled, i])[0])
+            if is_labeled.sum() < 2:
+                res_list.append(float('nan'))
+                continue
+            res_list.append(_safe_spearmanr(y_true[is_labeled, i],
+                                            y_pred[is_labeled, i]))
 
-    return {'spearmanr': sum(res_list) / len(res_list)}
+    valid = [r for r in res_list if np.isfinite(r)]
+    if not valid:
+        return {'spearmanr': float('nan')}
+    return {'spearmanr': sum(valid) / len(valid)}

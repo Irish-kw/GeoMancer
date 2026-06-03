@@ -26,6 +26,8 @@ def overwrite_defaults_cfg(cfg):
 
     cfg.train.ckpt_best = False
     cfg.train.start_eval_epoch = -1
+    cfg.train.log_style = 'compact'  # 'compact' or 'verbose'
+    cfg.train.generation_viz_samples = 20  # graphs saved per val/test eval
 
     cfg.train.pretrain = CN()
     cfg.train.pretrain.mask_node_prob = 0.0

@@ -18,13 +18,12 @@ from copy import deepcopy
 import warnings
 from utils import random_mask
 from geomancer.asset.molecules_evaluation import compute_molecular_metrics, build_molecule, mols_to_nx, mol2smiles, build_molecule_with_partial_charges
+from geomancer.asset.graph_viz import save_nx_graphs, save_generation_metrics
 from geomancer.asset.mmd import compute_nspdk_mmd
 from geomancer.loader.dataset.qm9 import get_qm9_smiles, QM9infos
 from geomancer.loader.dataset.moses import get_moses_smiles, MOSESinfos
 from rdkit import Chem
 import os
-import networkx as nx
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 
@@ -79,74 +78,74 @@ def eval_epoch(logger, loader, model, split='val', repeat=1, ensemble_mode='none
     model.eval()
     time_start = time.time()
     generated_mol = []
-    iter = 0
     num_test_graphs = 0
+    _true = _pred = None
     for batch in loader:
         max_num_test = 1000 if cfg.dataset.format == 'PyG-MOSES' else 10000
         if num_test_graphs >= max_num_test:
             break
         num_test_graphs += batch.num_graphs
-        if iter == 0 and evaluate:
-            visualize = True
-            iter += 1
-        else:
-            visualize = False
         batch.split = split
         batch.to(torch.device(cfg.accelerator))
         if cfg.gnn.head == 'inductive_edge':
             pred, true, extra_stats = model(batch)
         else:
             if ensemble_mode == 'none':
-                node_label, edge_label, graph_label = batch.x.clone().detach().flatten(), batch.edge_attr.clone().detach().flatten(), batch.y
-                # the embed of labels and prefix are done in fine-tuning of the encoder, not pretraining
                 batch.x_masked = batch.x.clone().detach()
                 batch.edge_attr_masked = batch.edge_attr.clone().detach()
                 ddim_steps = cfg.diffusion.get('ddim_steps', None)
                 ddim_eta = cfg.diffusion.get('ddim_eta', 0.0)
                 use_ddpm_steps = cfg.diffusion.get('use_ddpm_steps', False)
-                _, graph_pred = model.inference(batch, ddim_steps=ddim_steps, ddim_eta=ddim_eta, use_ddpm_steps=use_ddpm_steps, visualize=visualize)
+                _, graph_pred = model.inference(
+                    batch, ddim_steps=ddim_steps, ddim_eta=ddim_eta,
+                    use_ddpm_steps=use_ddpm_steps, visualize=False)
                 for each in graph_pred:
                     generated_mol.append(each)
             else:
                 raise NotImplementedError
-            # pred, true = model(batch)
             extra_stats = {}
         if cfg.dataset.name == 'ogbg-code2':
             loss, pred_score = subtoken_cross_entropy(pred, true)
             _true = true
             _pred = pred_score
         else:
-            true = batch.y  
-            # loss, pred_score = compute_loss(graph_pred, true)
+            true = batch.y
             _true = true.detach().to('cpu', non_blocking=True)
             _pred = true.detach().to('cpu', non_blocking=True)
-            # logging.info(_pred)
-        logger.update_stats(true=_true,
-                            pred=_pred,
-                            loss=_.detach().cpu().item(),
-                            lr=0, time_used=time.time() - time_start,
-                            params=cfg.params,
-                            dataset_name=cfg.dataset.name,
-                            **extra_stats)
-        time_start = time.time()
+        if not evaluate:
+            logger.update_stats(true=_true,
+                                pred=_pred,
+                                loss=0.0,
+                                lr=0, time_used=time.time() - time_start,
+                                params=cfg.params,
+                                dataset_name=cfg.dataset.name,
+                                **extra_stats)
+            time_start = time.time()
+
+    metrics = None
     if evaluate:
         if len(generated_mol) > 10000:
             generated_mol = random.sample(generated_mol, 10000)
-        validity_dict, rdkit_metrics, all_smiles, dic, visualize_samples = compute_molecular_metrics(generated_mol, train_smiles, dataset_info, pref)
-        # visualize generated molecules
-        save_path = os.path.join(cfg.run_dir, 'generated_molecules')
-        os.makedirs(save_path, exist_ok=True)
-
-        for i in range(len(visualize_samples)):
-            G = visualize_samples[i]
-            logging.info(G)
-            labels = nx.get_node_attributes(G, 'label')
-            pos = nx.spring_layout(G)
-            nx.draw(G, pos)
-            nx.draw_networkx_labels(G, pos, labels=labels)
-            nx.draw_networkx_edge_labels(G, pos)
-            plt.savefig(save_path + '/epoch_' + str(current_epoch) + '_sample_' + str(i) + '.png')
-            plt.clf()
+        validity_dict, rdkit_metrics, all_smiles, metrics, visualize_samples = compute_molecular_metrics(
+            generated_mol, train_smiles, dataset_info, pref)
+        viz_dir = os.path.join(cfg.run_dir, 'generated_molecules', split)
+        n_viz = cfg.train.get('generation_viz_samples', 20)
+        save_nx_graphs(visualize_samples, viz_dir,
+                       prefix=f'epoch_{current_epoch:04d}', max_samples=n_viz)
+        save_generation_metrics(
+            {**validity_dict, **metrics},
+            os.path.join(cfg.run_dir, 'generation_metrics'), split, current_epoch)
+        if _true is None:
+            _true = _pred = torch.zeros(1)
+        logger.update_stats(true=_true,
+                            pred=_pred,
+                            loss=0.0,
+                            lr=0, time_used=time.time() - time_start,
+                            params=cfg.params,
+                            dataset_name=cfg.dataset.name,
+                            **validity_dict,
+                            **metrics)
+    return metrics
 
 
 @register_train('qm9_unconditional')
@@ -229,19 +228,9 @@ def custom_train_diffusion(loggers, loaders, model, optimizer, scheduler):
     # logging.info('Ground truth sampled test FCD: ' + str(FCD_test_sample))
     # mmd_dist_sample = compute_nspdk_mmd(random.sample(test_graphs, 5000), test_graphs, metric='nspdk', is_hist=False, n_jobs=20)
     # logging.info('Ground truth sampled test NSPDK MMD: ' + str(mmd_dist_sample))
-    # visualize test graphs
-    save_path = os.path.join(cfg.run_dir, 'generated_molecules')
-    os.makedirs(save_path, exist_ok=True)
-    for i in range(50):
-        G = test_graphs[i]
-        logging.info(G)
-        labels = nx.get_node_attributes(G, 'label')
-        pos = nx.spring_layout(G)
-        nx.draw(G, pos)
-        nx.draw_networkx_labels(G, pos, labels=labels)
-        nx.draw_networkx_edge_labels(G, pos)
-        plt.savefig(save_path + '/test_ground_truth_' + str(i) + '.png')
-        plt.clf()
+    # visualize reference test graphs once at startup
+    ref_dir = os.path.join(cfg.run_dir, 'generated_molecules', 'reference')
+    save_nx_graphs(test_graphs, ref_dir, prefix='test_ground_truth', max_samples=50)
 
     for cur_epoch in range(start_epoch, cfg.optim.max_epoch):
         if cur_epoch in [999, 1999, 2499]:
@@ -253,18 +242,18 @@ def custom_train_diffusion(loggers, loaders, model, optimizer, scheduler):
 
         if cur_epoch > cfg.train.start_eval_epoch:
             if is_eval_epoch(cur_epoch):
-                if cur_epoch == 0:
-                    eval_epoch(loggers[1], loaders[1], model,
-                               split=split_names[0], repeat=cfg.train.ensemble_repeat,
-                               ensemble_mode=cfg.train.ensemble_mode,
-                               train_smiles=train_smiles, dataset_info=infos, evaluate=True, pref=pref, current_epoch=cur_epoch)
-                    perf[1].append(loggers[1].write_epoch(cur_epoch))
-                else:
-                    perf[1].append(perf[1][-1])
+                eval_epoch(loggers[1], loaders[1], model,
+                           split=split_names[0], repeat=cfg.train.ensemble_repeat,
+                           ensemble_mode=cfg.train.ensemble_mode,
+                           train_smiles=train_smiles, dataset_info=infos, evaluate=True,
+                           pref=pref, current_epoch=cur_epoch)
+                perf[1].append(loggers[1].write_epoch(cur_epoch))
 
                 eval_epoch(loggers[2], loaders[2], model,
-                           split=split_names[1], repeat=cfg.train.ensemble_repeat, ensemble_mode=cfg.train.ensemble_mode,
-                           train_smiles=train_smiles, dataset_info=infos, evaluate=True, pref=pref, current_epoch=cur_epoch)
+                           split=split_names[1], repeat=cfg.train.ensemble_repeat,
+                           ensemble_mode=cfg.train.ensemble_mode,
+                           train_smiles=train_smiles, dataset_info=infos, evaluate=True,
+                           pref=pref, current_epoch=cur_epoch)
                 perf[2].append(loggers[2].write_epoch(cur_epoch))
             else:
                 for i in range(2, num_splits):

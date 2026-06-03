@@ -169,7 +169,7 @@ diffusion:
   conditioning_key: crossattn
   hid_dim: 4  # should be the same as dt.in_dim
   cond_stage_key: masked_graph
-  first_stage_config: results/photo-encoder/0/ckpt/599.ckpt  # need to replace with the ckpt you desire
+  first_stage_config: results/photo-encoder/200/ckpt/863.ckpt
   cond_stage_config: __is_first_stage__
   node_factor: 1.0
   edge_factor: 0.0

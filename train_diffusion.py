@@ -21,11 +21,11 @@ from torch_geometric.graphgym.utils.comp_budget import params_count
 from torch_geometric.graphgym.utils.device import auto_select_device
 from torch_geometric.graphgym.register import train_dict, network_dict, register_network, act_dict
 from torch_geometric import seed_everything
-from lgd.asset.logger import create_logger
-from lgd.loader.master_loader import load_dataset_master
-from lgd.optimizer.extra_optimizers import ExtendedSchedulerConfig
-from lgd.agg_runs import agg_runs
-from lgd.finetuning import load_pretrained_model_cfg, \
+from geomancer.asset.logger import create_logger
+from geomancer.loader.master_loader import load_dataset_master
+from geomancer.optimizer.extra_optimizers import ExtendedSchedulerConfig
+from geomancer.agg_runs import agg_runs
+from geomancer.finetuning import load_pretrained_model_cfg, \
     init_model_from_pretrained
 from geomancer.ddpm.LGD import DDPM, LatentDiffusion
 from geomancer.ddpm.LGD_Inductive import LatentDiffusionInductive

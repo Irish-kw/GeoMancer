@@ -35,7 +35,7 @@ import geomancer.model
 import geomancer.encoder
 import geomancer.train
 import geomancer.optimizer
-import lgd.loss
+import geomancer.loss
 import geomancer.transform
 import geomancer.head
 from geomancer.model.GraphTransformerEncodercurv5 import *

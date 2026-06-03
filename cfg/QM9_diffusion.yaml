@@ -182,6 +182,7 @@ diffusion:
   hid_dim: 32  # should be the same as dt.in_dim
   parameterization: "x0"
   cond_stage_key: unconditional
+  cluster: 1  # required by DenoisingTransformer even for unconditional mode
   first_stage_config: results/QM9_unconditional_generation_encoder2/146/ckpt/479.ckpt
   cond_stage_config: '__is_unconditional__'
   node_factor: 1.0

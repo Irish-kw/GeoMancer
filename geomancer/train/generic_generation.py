@@ -136,7 +136,7 @@ def eval_epoch(logger, loader, model, split='val', repeat=1, ensemble_mode='none
             # logging.info(_pred)
         logger.update_stats(true=_true,
                             pred=_pred,
-                            loss=_.detach().cpu().item(),
+                            loss=0.0,
                             lr=0, time_used=time.time() - time_start,
                             params=cfg.params,
                             dataset_name=cfg.dataset.name,

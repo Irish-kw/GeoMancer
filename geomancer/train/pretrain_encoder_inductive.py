@@ -13,6 +13,7 @@ from torch_geometric.graphgym.utils.epoch import is_eval_epoch, is_ckpt_epoch
 
 from geomancer.loss.subtoken_prediction_loss import subtoken_cross_entropy
 from geomancer.asset.utils import cfg_to_dict, flatten_dict, make_wandb_name, mlflow_log_cfgdict
+from geomancer.asset.logger import log_compact_epoch
 from copy import deepcopy
 import warnings
 from utils import random_mask
@@ -301,14 +302,19 @@ def custom_pretrain_encoder(loggers, loaders, model, optimizer, scheduler):
                 save_ckpt(model, optimizer, scheduler, cur_epoch)
                 if cfg.train.ckpt_clean:  # Delete old ckpt each time.
                     clean_ckpt()
-            logging.info(
-                f"> Epoch {cur_epoch}: took {full_epoch_times[-1]:.1f}s "
-                f"(avg {np.mean(full_epoch_times):.1f}s) | "
-                f"Best so far: epoch {best_epoch}\t"
-                f"train_loss: {perf[0][best_epoch]['loss']:.4f} {best_train}\t"
-                f"val_loss: {perf[1][best_epoch]['loss']:.4f} {best_val}\t"
-                f"test_loss: {perf[2][best_epoch]['loss']:.4f} {best_test}"
-            )
+            if getattr(cfg.train, 'log_style', 'compact') == 'compact':
+                log_compact_epoch(
+                    cur_epoch, perf, best_epoch,
+                    full_epoch_times[-1], np.mean(full_epoch_times))
+            else:
+                logging.info(
+                    f"> Epoch {cur_epoch}: took {full_epoch_times[-1]:.1f}s "
+                    f"(avg {np.mean(full_epoch_times):.1f}s) | "
+                    f"Best so far: epoch {best_epoch}\t"
+                    f"train_loss: {perf[0][best_epoch]['loss']:.4f} {best_train}\t"
+                    f"val_loss: {perf[1][best_epoch]['loss']:.4f} {best_val}\t"
+                    f"test_loss: {perf[2][best_epoch]['loss']:.4f} {best_test}"
+                )
             if hasattr(model, 'trf_layers'):
                 # Log SAN's gamma parameter values if they are trainable.
                 for li, gtl in enumerate(model.trf_layers):
